@@ -1,4 +1,4 @@
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@ from unittest import mock
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
-import pyautoenv
+import pyautoenv2
 from tests.tools import (
     OPERATING_SYSTEM,
     activate_venv,
@@ -52,7 +52,7 @@ class VenvTester(abc.ABC):
         """The name of the activator script."""
 
     def setup_method(self):
-        clear_lru_caches(pyautoenv)
+        clear_lru_caches(pyautoenv2)
         os.environ = {}  # noqa: B003
         self.os_patch = mock.patch(OPERATING_SYSTEM, return_value=self.os)
         self.os_patch.start()
@@ -75,14 +75,14 @@ class VenvTester(abc.ABC):
     def test_activates_given_venv_dir(self):
         stdout = StringIO()
 
-        assert pyautoenv.main([str(self.PY_PROJ), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ), self.flag], stdout) == 0
         assert stdout.getvalue() == f". '{self.VENV_DIR / self.activator}'"
 
     def test_activates_if_venv_in_parent(self):
         stdout = StringIO()
 
         assert (
-            pyautoenv.main([str(self.PY_PROJ / "src"), self.flag], stdout) == 0
+            pyautoenv2.main([str(self.PY_PROJ / "src"), self.flag], stdout) == 0
         )
         assert stdout.getvalue() == f". '{self.VENV_DIR / self.activator}'"
 
@@ -90,27 +90,27 @@ class VenvTester(abc.ABC):
         stdout = StringIO()
         activate_venv(self.VENV_DIR)
 
-        assert pyautoenv.main([str(self.PY_PROJ), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_venv_dir_in_parent_is_already_active(self):
         stdout = StringIO()
         activate_venv(self.VENV_DIR)
 
-        assert pyautoenv.main([str(self.PY_PROJ / "src")], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ / "src")], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_not_venv_dir_and_venv_not_active(self):
         stdout = StringIO()
 
-        assert pyautoenv.main(["not_a_venv", self.flag], stdout) == 0
+        assert pyautoenv2.main(["not_a_venv", self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_deactivate_given_active_and_not_venv_dir(self):
         stdout = StringIO()
         activate_venv(self.VENV_DIR)
 
-        assert pyautoenv.main(["not_a_venv", self.flag], stdout) == 0
+        assert pyautoenv2.main(["not_a_venv", self.flag], stdout) == 0
         assert stdout.getvalue() == "deactivate"
 
     def test_deactivate_and_activate_switching_to_new_venv(self, fs):
@@ -119,10 +119,10 @@ class VenvTester(abc.ABC):
         fs.create_file(new_venv_activate)
         activate_venv(self.VENV_DIR)
 
-        assert pyautoenv.main(["pyproj2", self.flag], stdout=stdout) == 0
+        assert pyautoenv2.main(["pyproj2", self.flag], stdout=stdout) == 0
         assert stdout.getvalue() == f"deactivate && . '{new_venv_activate}'"
 
-    @mock.patch("pyautoenv.poetry_activator")
+    @mock.patch("pyautoenv2.poetry_activator")
     def test_deactivate_and_activate_switching_to_poetry(
         self,
         poetry_env_mock,
@@ -137,7 +137,7 @@ class VenvTester(abc.ABC):
         fs = make_poetry_project(fs, "project", Path("/poetry_proj"))
         fs.create_file(activator)
 
-        assert pyautoenv.main(["poetry_proj", self.flag], stdout) == 0
+        assert pyautoenv2.main(["poetry_proj", self.flag], stdout) == 0
         assert stdout.getvalue() == f"deactivate && . '{activator}'"
 
     def test_does_nothing_if_activate_script_is_not_file(self, fs):
@@ -145,7 +145,7 @@ class VenvTester(abc.ABC):
         # venv directory exists, but not the activate script
         fs.remove(self.VENV_DIR / self.activator)
 
-        assert pyautoenv.main([str(self.PY_PROJ), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_first_existing_venv_name_taken_from_environment_variable(
@@ -158,31 +158,31 @@ class VenvTester(abc.ABC):
         fs.create_file(self.PY_PROJ / "other_venv" / self.activator)
         os.environ["PYAUTOENV_VENV_NAME"] = "foo;venv;other_venv"
 
-        assert pyautoenv.main([str(self.PY_PROJ), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ), self.flag], stdout) == 0
         assert stdout.getvalue() == f". '{venv_activate}'"
 
     def test_venv_dir_name_environment_variable_ignored_if_set_but_empty(self):
         stdout = StringIO()
         os.environ["PYAUTOENV_VENV_NAME"] = ""
 
-        assert pyautoenv.main([str(self.PY_PROJ), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ), self.flag], stdout) == 0
         assert stdout.getvalue() == f". '{self.VENV_DIR / self.activator}'"
 
     def test_nothing_happens_given_changing_to_ignored_directory(self):
         stdout = StringIO()
         ignore = f"some_dir;{self.PY_PROJ.resolve()}"
-        os.environ[pyautoenv.IGNORE_DIRS] = ignore
+        os.environ[pyautoenv2.IGNORE_DIRS] = ignore
 
-        assert pyautoenv.main([str(self.PY_PROJ), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_change_to_child_of_ignored_directory(self):
         stdout = StringIO()
         ignore = f"some_dir;{self.PY_PROJ.resolve()}"
-        os.environ[pyautoenv.IGNORE_DIRS] = ignore
+        os.environ[pyautoenv2.IGNORE_DIRS] = ignore
 
         assert (
-            pyautoenv.main([str(self.PY_PROJ / "src"), self.flag], stdout) == 0
+            pyautoenv2.main([str(self.PY_PROJ / "src"), self.flag], stdout) == 0
         )
         assert not stdout.getvalue()
 
@@ -190,31 +190,31 @@ class VenvTester(abc.ABC):
         stdout = StringIO()
         activate_venv(self.VENV_DIR)
         ignore = f"some_dir;{self.PY_PROJ.resolve()}"
-        os.environ[pyautoenv.IGNORE_DIRS] = ignore
+        os.environ[pyautoenv2.IGNORE_DIRS] = ignore
 
-        assert pyautoenv.main([str(self.PY_PROJ), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.PY_PROJ), self.flag], stdout) == 0
         assert stdout.getvalue() == "deactivate"
 
 
 class TestVenvBashLinux(VenvTester):
     activator = "bin/activate"
     flag = ""
-    os = pyautoenv.OS_LINUX
+    os = pyautoenv2.OS_LINUX
 
 
 class TestVenvPwshLinux(VenvTester):
     activator = "bin/activate.ps1"
     flag = "--pwsh"
-    os = pyautoenv.OS_LINUX
+    os = pyautoenv2.OS_LINUX
 
 
 class TestVenvFishLinux(VenvTester):
     activator = "bin/activate.fish"
     flag = "--fish"
-    os = pyautoenv.OS_LINUX
+    os = pyautoenv2.OS_LINUX
 
 
 class TestVenvPwshWindows(VenvTester):
     activator = "Scripts/activate.ps1"
     flag = "--pwsh"
-    os = pyautoenv.OS_WINDOWS
+    os = pyautoenv2.OS_WINDOWS

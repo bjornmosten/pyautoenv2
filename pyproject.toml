@@ -1,5 +1,5 @@
 [project]
-name = "pyautoenv"
+name = "pyautoenv2"
 version = "0.7.1"
 description = "Print a command to activate or deactivate a Python venv based on a directory."
 authors = [

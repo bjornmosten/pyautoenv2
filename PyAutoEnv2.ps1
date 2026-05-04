@@ -1,4 +1,4 @@
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,14 +24,14 @@ $pyAutoEnvDir = "${PSScriptRoot}"
 .LINK
   https://github.com/hsaunders1904/pyautoenv/
 #>
-function Invoke-PyAutoEnv() {
+function Invoke-PyAutoEnv2() {
   if (${Env:PYAUTOENV_DISABLE} -ne 0 -And "${Env:PYAUTOENV_DISABLE}" -ne "") {
     return
   }
   if (-Not (Get-Command "python" -ErrorAction SilentlyContinue)) {
     return
   }
-  $pyAutoEnv = Join-Path "${pyAutoEnvDir}" "pyautoenv.py"
+  $pyAutoEnv = Join-Path "${pyAutoEnvDir}" "pyautoenv2.py"
   if (Test-Path "${pyAutoEnv}") {
     if (-Not "${Env:PYAUTOENV_DEBUG}" -Or "${Env:PYAUTOENV_DEBUG}" -Eq "0") {
       $expression = "$(python -OO "${pyAutoEnv}" --pwsh)"
@@ -47,22 +47,22 @@ function Invoke-PyAutoEnv() {
 
 <#
 .SYNOPSIS
-  Show the version of pyautoenv.
+  Show the version of pyautoenv2.
 .LINK
   https://github.com/hsaunders1904/pyautoenv/
 #>
-function Invoke-PyAutoEnvVersion() {
-  $pyAutoEnv = Join-Path "${pyAutoEnvDir}" "pyautoenv.py"
+function Invoke-PyAutoEnv2Version() {
+  $pyAutoEnv = Join-Path "${pyAutoEnvDir}" "pyautoenv2.py"
   python -O "${pyAutoEnv}" --version
 }
 
 <#
 .SYNOPSIS
-  Create a proxy function definition for a Cmdlet that executes pyautoenv.
+  Create a proxy function definition for a Cmdlet that executes pyautoenv2.
 .LINK
   https://github.com/hsaunders1904/pyautoenv/
 #>
-function New-PyAutoEnvProxyFunctionDefinition([string] $commandString)
+function New-PyAutoEnv2ProxyFunctionDefinition([string] $commandString)
 {
   # Generate base code for the Proxy function.
   $originalCommand = Get-Command -Name "$commandString" -CommandType Cmdlet
@@ -80,9 +80,9 @@ function New-PyAutoEnvProxyFunctionDefinition([string] $commandString)
     return "function $commandString {`n${body}`n}"
   }
 
-  # Insert the pyautoenv function call into the 'end' block of the proxy code.
+  # Insert the pyautoenv2 function call into the 'end' block of the proxy code.
   $tab = "    "
-  $insert = "`n${tab}try {`n${tab}${tab}Invoke-PyAutoEnv`n${tab}} catch {}`n"
+  $insert = "`n${tab}try {`n${tab}${tab}Invoke-PyAutoEnv2`n${tab}} catch {}`n"
   $newEndBlockOpen = $endBlock.Substring(0, $endBlockClosingIndex) + $insert
   $newEndBlock = $newEndBlockOpen + $endBlock.Substring($endBlockClosingIndex)
   $updatedProxyCmd = $proxyCode.Replace($endBlock, $newEndBlock)
@@ -91,7 +91,7 @@ function New-PyAutoEnvProxyFunctionDefinition([string] $commandString)
 
 foreach ($commandName in ("Set-Location", "Push-Location", "Pop-Location")) {
   Invoke-Expression (& {
-    (New-PyAutoEnvProxyFunctionDefinition "$commandName" | Out-String)
+    (New-PyAutoEnv2ProxyFunctionDefinition "$commandName" | Out-String)
   })
 }
-Invoke-PyAutoEnv  # Look for environment in initial directory.
+Invoke-PyAutoEnv2  # Look for environment in initial directory.

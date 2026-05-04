@@ -1,4 +1,4 @@
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,23 +21,23 @@ from unittest import mock
 
 import pytest
 
-import pyautoenv
+import pyautoenv2
 from tests.tools import root_dir
 
 
 def test_main_does_nothing_given_directory_does_not_exist():
     stdout = StringIO()
 
-    assert pyautoenv.main(["/not/a/dir"], stdout) == 1
+    assert pyautoenv2.main(["/not/a/dir"], stdout) == 1
     assert not stdout.getvalue()
 
 
 @pytest.mark.parametrize(
     ("os_name", "enum_value"),
     [
-        ("linux2", pyautoenv.OS_LINUX),
-        ("darwin", pyautoenv.OS_MACOS),
-        ("win32", pyautoenv.OS_WINDOWS),
+        ("linux2", pyautoenv2.OS_LINUX),
+        ("darwin", pyautoenv2.OS_MACOS),
+        ("win32", pyautoenv2.OS_WINDOWS),
         ("Java", None),
     ],
 )
@@ -45,10 +45,10 @@ def test_operating_system_returns_value_based_on_sys_platform(
     os_name,
     enum_value,
 ):
-    pyautoenv.operating_system.cache_clear()
+    pyautoenv2.operating_system.cache_clear()
 
-    with mock.patch("pyautoenv.sys.platform", new=os_name):
-        assert pyautoenv.operating_system() == enum_value
+    with mock.patch("pyautoenv2.sys.platform", new=os_name):
+        assert pyautoenv2.operating_system() == enum_value
 
 
 class TestParseArgs:
@@ -56,14 +56,14 @@ class TestParseArgs:
         self.stdout = StringIO()
 
     def test_directory_is_cwd_by_default(self):
-        args = pyautoenv.parse_args([], self.stdout)
+        args = pyautoenv2.parse_args([], self.stdout)
 
         assert args.directory == str(Path.cwd())
 
     def test_directory_is_set(self):
         path = Path("some/dir")
 
-        args = pyautoenv.parse_args([str(path)], self.stdout)
+        args = pyautoenv2.parse_args([str(path)], self.stdout)
 
         assert args.directory == os.path.abspath(path)
 
@@ -73,9 +73,9 @@ class TestParseArgs:
     )
     def test_help_prints_help_and_exits(self, args):
         with pytest.raises(SystemExit) as sys_exit:
-            pyautoenv.parse_args(args, self.stdout)
-        assert re.match(r"usage: pyautoenv(.py)? .*\n", self.stdout.getvalue())
-        assert pyautoenv.__doc__ in self.stdout.getvalue()
+            pyautoenv2.parse_args(args, self.stdout)
+        assert re.match(r"usage: pyautoenv2(.py)? .*\n", self.stdout.getvalue())
+        assert pyautoenv2.__doc__ in self.stdout.getvalue()
         assert sys_exit.value.code == 0
 
     @pytest.mark.parametrize(
@@ -84,14 +84,14 @@ class TestParseArgs:
     )
     def test_version_prints_version_and_exits(self, args):
         with pytest.raises(SystemExit) as sys_exit:
-            pyautoenv.parse_args(args, self.stdout)
-        version_pattern = r"pyautoenv [0-9]+\.[0-9]+\.[0-9](\.\w+)?\n"
+            pyautoenv2.parse_args(args, self.stdout)
+        version_pattern = r"pyautoenv2 [0-9]+\.[0-9]+\.[0-9](\.\w+)?\n"
         assert re.match(version_pattern, self.stdout.getvalue())
         assert sys_exit.value.code == 0
 
     @pytest.mark.parametrize("argv", [[], ["path"]])
     def test_fish_false_given_no_flag(self, argv):
-        args = pyautoenv.parse_args(argv, self.stdout)
+        args = pyautoenv2.parse_args(argv, self.stdout)
 
         assert args.fish is False
 
@@ -100,13 +100,13 @@ class TestParseArgs:
         [["--fish"], ["path", "--fish"], ["--fish", "path"]],
     )
     def test_fish_true_given_flag(self, argv):
-        args = pyautoenv.parse_args(argv, self.stdout)
+        args = pyautoenv2.parse_args(argv, self.stdout)
 
         assert args.fish is True
 
     @pytest.mark.parametrize("argv", [[], ["path"], ["--fish"]])
     def test_pwsh_false_given_no_flag(self, argv):
-        args = pyautoenv.parse_args(argv, self.stdout)
+        args = pyautoenv2.parse_args(argv, self.stdout)
 
         assert args.pwsh is False
 
@@ -115,7 +115,7 @@ class TestParseArgs:
         [["--pwsh"], ["path", "--pwsh"], ["--pwsh", "path"]],
     )
     def test_pwsh_true_given_flag(self, argv):
-        args = pyautoenv.parse_args(argv, self.stdout)
+        args = pyautoenv2.parse_args(argv, self.stdout)
 
         assert args.pwsh is True
 
@@ -124,16 +124,16 @@ class TestParseArgs:
         argv = argv_prefix + ["--pwsh", "--fish"]
 
         with pytest.raises(ValueError):
-            pyautoenv.parse_args(argv, self.stdout)
+            pyautoenv2.parse_args(argv, self.stdout)
 
     def test_raises_value_error_given_more_than_two_args(self):
         with pytest.raises(ValueError):
-            pyautoenv.parse_args(["/some/dir", "/another/dir"], self.stdout)
+            pyautoenv2.parse_args(["/some/dir", "/another/dir"], self.stdout)
 
     def test_empty_args_are_ignored(self):
         argv = ["   ", "\t", str(root_dir() / "some" / "dir"), ""]
 
-        args = pyautoenv.parse_args(argv, self.stdout)
+        args = pyautoenv2.parse_args(argv, self.stdout)
 
         assert args.directory == str(root_dir() / "some" / "dir")
         assert args.fish is False

@@ -11,7 +11,7 @@ from unittest import mock
 import pytest
 from typing_extensions import Buffer
 
-import pyautoenv
+import pyautoenv2
 from benches.tools import environment_variable, make_venv
 from tests.tools import clear_lru_caches
 
@@ -38,20 +38,20 @@ build-backend = "poetry.core.masonry.api"
 
 @pytest.fixture(autouse=True)
 def reset_caches() -> None:
-    """Reset the LRU caches in pyautoenv."""
-    clear_lru_caches(pyautoenv)
+    """Reset the LRU caches in pyautoenv2."""
+    clear_lru_caches(pyautoenv2)
 
 
 @pytest.fixture(autouse=True, scope="module")
 def capture_logging() -> Generator[None, None, None]:
     """Capture all logging as benchmarks are extremely noisy."""
     if __debug__:
-        logging_disable = pyautoenv.logger.disabled
+        logging_disable = pyautoenv2.logger.disabled
         try:
-            pyautoenv.logger.disabled = True
+            pyautoenv2.logger.disabled = True
             yield
         finally:
-            pyautoenv.logger.disabled = logging_disable
+            pyautoenv2.logger.disabled = logging_disable
     else:
         yield None
 

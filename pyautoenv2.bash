@@ -1,4 +1,4 @@
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,35 +18,35 @@ if ! [[ $- == *i* ]]; then
     return
 fi
 if ! [ "$(type cd)" == "cd is a shell builtin" ]; then
-    >&2 echo "pyautoenv: cd is non-default, aborting activation so things don't break!"
+    >&2 echo "pyautoenv2: cd is non-default, aborting activation so things don't break!"
     return
 fi
 
-_pyautoenv_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+_pyautoenv2_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 
-function _pyautoenv_activate() {
+function _pyautoenv2_activate() {
     if [ "${PYAUTOENV_DISABLE-0}" -ne 0 ]; then
         return
     fi
     if [ -z "$(command -v python3)" ]; then
         return
     fi
-    local pyautoenv_py="${_pyautoenv_path}/pyautoenv.py"
-    if [ -f "${pyautoenv_py}" ]; then
+    local pyautoenv2_py="${_pyautoenv2_path}/pyautoenv2.py"
+    if [ -f "${pyautoenv2_py}" ]; then
         if [ "${PYAUTOENV_DEBUG-0}" -ne 0 ]; then
-            eval "$(python3 "${pyautoenv_py}")"
+            eval "$(python3 "${pyautoenv2_py}")"
         else
-            eval "$(python3 -OO "${pyautoenv_py}")"
+            eval "$(python3 -OO "${pyautoenv2_py}")"
         fi
     fi
 }
 
-function _pyautoenv_version() {
-    python3 -O "${_pyautoenv_path}/pyautoenv.py" --version
+function _pyautoenv2_version() {
+    python3 -O "${_pyautoenv2_path}/pyautoenv2.py" --version
 }
 
 function cd() {
-    builtin cd "$@" && _pyautoenv_activate
+    builtin cd "$@" && _pyautoenv2_activate
 }
 
-_pyautoenv_activate
+_pyautoenv2_activate

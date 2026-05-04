@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,39 +14,39 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-_pyautoenv_path="${0:a:h}"
+_pyautoenv2_path="${0:a:h}"
 
-function _pyautoenv_activate() {
-    add-zsh-hook -d precmd _pyautoenv_activate
+function _pyautoenv2_activate() {
+    add-zsh-hook -d precmd _pyautoenv2_activate
     if [ "${PYAUTOENV_DISABLE-0}" -ne 0 ]; then
         return
     fi
     if [ -z "$(command -v python3)" ]; then
         return
     fi
-    local pyautoenv_py="${_pyautoenv_path}/pyautoenv.py"
-    if [ -f "${pyautoenv_py}" ]; then
+    local pyautoenv2_py="${_pyautoenv2_path}/pyautoenv2.py"
+    if [ -f "${pyautoenv2_py}" ]; then
         if [ "${PYAUTOENV_DEBUG-0}" -ne 0 ]; then
-            eval "$(python3 "${pyautoenv_py}")"
+            eval "$(python3 "${pyautoenv2_py}")"
         else
-            eval "$(python3 -OO "${pyautoenv_py}")"
+            eval "$(python3 -OO "${pyautoenv2_py}")"
         fi
     fi
 }
 
-function _pyautoenv_version() {
-    python3 -O "${_pyautoenv_path}/pyautoenv.py" --version
+function _pyautoenv2_version() {
+    python3 -O "${_pyautoenv2_path}/pyautoenv2.py" --version
 }
 
 # We need to make sure the shell is fully initialised before we activate the
 # virtual environment, otherwise there's some weirdness when the environment
 # is deactivated (the user's zshrc is essentially undone).
 #
-# To work around this, hook into 'chpwd' _and_ 'precmd' so that pyautoenv is
+# To work around this, hook into 'chpwd' _and_ 'precmd' so that pyautoenv2 is
 # run just before the shell prompt is written. Then, within the activation
 # function, remove the 'precmd' hook.
 # The effect of this is that the activation script is run last thing on shell
 # startup and then on any change of directory.
 autoload -Uz add-zsh-hook
-add-zsh-hook chpwd _pyautoenv_activate
-add-zsh-hook precmd _pyautoenv_activate
+add-zsh-hook chpwd _pyautoenv2_activate
+add-zsh-hook precmd _pyautoenv2_activate

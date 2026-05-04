@@ -1,5 +1,5 @@
 #!/usr/bin/env fish
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,11 +19,11 @@ if ! status --is-interactive
     exit 0
 end
 
-set _pyautoenv_path (dirname (realpath (status current-filename)))
+set _pyautoenv2_path (dirname (realpath (status current-filename)))
 
-function _pyautoenv_activate \
+function _pyautoenv2_activate \
         --on-variable PWD \
-        --on-event _pyautoenv_fish_init \
+        --on-event _pyautoenv2_fish_init \
         --description 'Activate/deactivate python environments based on the current directory'
     if test -n "$PYAUTOENV_DISABLE"; and test "$PYAUTOENV_DISABLE" != "0"
         return
@@ -31,18 +31,18 @@ function _pyautoenv_activate \
     if ! command --search python3 >/dev/null
         return
     end
-    set --local _pyautoenv_py "$_pyautoenv_path/pyautoenv.py"
-    if test -f "$_pyautoenv_py"
+    set --local _pyautoenv2_py "$_pyautoenv2_path/pyautoenv2.py"
+    if test -f "$_pyautoenv2_py"
         if not set -q PYAUTOENV_DEBUG; or test $PYAUTOENV_DEBUG -eq 0
-            eval (python3 -OO "$_pyautoenv_py" --fish)
+            eval (python3 -OO "$_pyautoenv2_py" --fish)
         else
-            eval (python3 "$_pyautoenv_py" --fish)
+            eval (python3 "$_pyautoenv2_py" --fish)
         end
     end
 end
 
-function _pyautoenv_version --description 'Print pyautoenv version'
-    python3 -O "$_pyautoenv_path/pyautoenv.py" --version
+function _pyautoenv2_version --description 'Print pyautoenv2 version'
+    python3 -O "$_pyautoenv2_path/pyautoenv2.py" --version
 end
 
-emit _pyautoenv_fish_init
+emit _pyautoenv2_fish_init

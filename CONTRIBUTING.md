@@ -1,7 +1,7 @@
-# Contributing to pyautoenv
+# Contributing to pyautoenv2
 
-Contributions to improve `pyautoenv` are very welcome.
-You can contribute to `pyautoenv` in many ways, including:
+Contributions to improve `pyautoenv2` are very welcome.
+You can contribute to `pyautoenv2` in many ways, including:
 
 - Reporting bugs.
 - Requesting/recommending features.
@@ -10,9 +10,9 @@ You can contribute to `pyautoenv` in many ways, including:
 
 Please open an issue to allow for discussion before starting work.
 
-## How `pyautoenv` Works
+## How `pyautoenv2` Works
 
-The majority of work is done by the `pyautoenv.py` script.
+The majority of work is done by the `pyautoenv2.py` script.
 The script generates activation/deactivation commands
 based on environment variables and the working directory.
 
@@ -31,7 +31,7 @@ Tracebacks and/or scripts are very useful.
 
 ## Setting Up a Development Environment
 
-`pyautoenv` uses [`uv`](https://docs.astral.sh/uv/)
+`pyautoenv2` uses [`uv`](https://docs.astral.sh/uv/)
 to manage its development environment.
 Install `uv`, by following the instructions in their
 [docs](https://docs.astral.sh/uv/getting-started/installation/).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@ directory must contain a 'poetry.lock' file. A venv project must contain
 a directory called '.venv' or one of the names in the
 'PYAUTOENV_VENV_NAME' environment variable (names separated by a ';').
 
-To specify specific directories where pyautoenv should not activate
+To specify specific directories where pyautoenv2 should not activate
 environments, add the directory's path to the 'PYAUTOENV_IGNORE_DIR'
 environment variable. Paths should be separated using a ';'.
 
@@ -38,7 +38,7 @@ from typing import Iterator, List, TextIO, Union
 
 __version__ = "0.7.1"
 
-CLI_HELP = f"""usage: pyautoenv [-h] [-V] [--fish | --pwsh] [directory]
+CLI_HELP = f"""usage: pyautoenv2 [-h] [-V] [--fish | --pwsh] [directory]
 {__doc__}
 positional arguments:
   directory      the path to look in for a python environment (default: '.')
@@ -53,6 +53,8 @@ IGNORE_DIRS = "PYAUTOENV_IGNORE_DIR"
 """Directories to ignore and not activate environments within."""
 VENV_NAMES = "PYAUTOENV_VENV_NAME"
 """Directory names to search in for venv virtual environments."""
+DISMISSED_RELOCATIONS = "PYAUTOENV_DISMISSED_RELOCATIONS"
+"""Venvs whose relocation prompt the user dismissed in this session."""
 
 OS_LINUX = 0
 OS_MACOS = 1
@@ -74,7 +76,7 @@ if __debug__:
         stream=sys.stderr,
         format="%(name)s: %(levelname)s: [%(asctime)s]: %(message)s",
     )
-    logger = logging.getLogger("pyautoenv")
+    logger = logging.getLogger("pyautoenv2")
 
 
 class Args:
@@ -103,6 +105,13 @@ def main(sys_args: List[str], stdout: TextIO) -> int:
         return 1
     new_activator = discover_env(args)
     active_env_dir = active_environment()
+    if new_activator and is_local_venv_activator(new_activator):
+        venv_dir = activator_venv_dir(new_activator)
+        if venv_is_relocated(venv_dir) and not is_relocation_dismissed(
+            venv_dir,
+        ):
+            emit_relocation_prompt(stdout, venv_dir, new_activator, args)
+            return 0
     if active_env_dir:
         if not new_activator:
             deactivate(stdout)
@@ -139,8 +148,21 @@ def deactivate_and_activate(stream: TextIO, new_activator: str) -> None:
 
 def activator_in_venv(activator_path: str, venv_dir: str) -> bool:
     """Return True if the given activator is in the given venv directory."""
-    activator_venv_dir = os.path.dirname(os.path.dirname(activator_path))
-    return os.path.samefile(activator_venv_dir, venv_dir)
+    candidate = activator_venv_dir(activator_path)
+    try:
+        return os.path.samefile(candidate, venv_dir)
+    except OSError:
+        # The active venv path no longer exists on disk (e.g. the user
+        # moved or deleted the directory containing it). Fall back to a
+        # normalised path comparison so we can still emit a sane command.
+        norm_a = os.path.normpath(os.path.abspath(candidate))
+        norm_b = os.path.normpath(os.path.abspath(venv_dir))
+        return norm_a == norm_b
+
+
+def activator_venv_dir(activator_path: str) -> str:
+    """Return the venv directory that contains the given activator."""
+    return os.path.dirname(os.path.dirname(activator_path))
 
 
 def active_environment() -> Union[str, None]:
@@ -183,7 +205,7 @@ def parse_args(argv: List[str], stdout: TextIO) -> Args:
         stdout.write(CLI_HELP)
         sys.exit(0)
     if parse_exit_flag(argv, ["-V", "--version"]):
-        stdout.write(f"pyautoenv {__version__}\n")
+        stdout.write(f"pyautoenv2 {__version__}\n")
         sys.exit(0)
 
     # Ignore empty arguments.
@@ -371,7 +393,7 @@ def poetry_env_name(directory: str) -> Union[str, None]:
     Get the name of the poetry environment defined in the given directory.
 
     A poetry environment directory will have a name of the form
-    ``pyautoenv-AacnJhVq-py3.10``. Where the first part is the
+    ``pyautoenv2-AacnJhVq-py3.10``. Where the first part is the
     (sanitized) project name taken from 'pyproject.toml'. The second
     part is the first 8 characters of the (base64 encoded) SHA256 hash
     of the absolute path of the project directory. The final part is
@@ -480,6 +502,158 @@ def iter_candidate_activators(env_directory: str, args: Args) -> Iterator[str]:
     yield os.path.join(env_directory, bin_dir, script)
 
 
+def is_local_venv_activator(activator_path: str) -> bool:
+    """Return True if the activator is for a project-local venv."""
+    venv_dir = activator_venv_dir(activator_path)
+    return os.path.basename(venv_dir) in venv_dir_names()
+
+
+def venv_is_relocated(venv_dir: str) -> bool:
+    """Return True if the venv's recorded path doesn't match its real path."""
+    recorded = recorded_virtual_env(venv_dir)
+    if not recorded:
+        return False
+    actual = os.path.realpath(venv_dir)
+    return os.path.realpath(recorded) != actual
+
+
+def recorded_virtual_env(venv_dir: str) -> Union[str, None]:
+    """Read the VIRTUAL_ENV path baked into the venv's activate script."""
+    bin_dir = "Scripts" if operating_system() == OS_WINDOWS else "bin"
+    activate_path = os.path.join(venv_dir, bin_dir, "activate")
+    try:
+        with open(activate_path, encoding="utf-8") as activate_file:
+            for raw_line in activate_file:
+                line = raw_line.strip()
+                if line.startswith("VIRTUAL_ENV="):
+                    val = line.split("=", 1)[1].strip()
+                    if len(val) > 1 and val[0] == val[-1] and val[0] in "\"'":
+                        val = val[1:-1]
+                    return val
+    except OSError:
+        return None
+    return None
+
+
+def is_relocation_dismissed(venv_dir: str) -> bool:
+    """Return True if the user already declined to fix this venv."""
+    raw = os.environ.get(DISMISSED_RELOCATIONS, "")
+    if not raw:
+        return False
+    target = os.path.realpath(venv_dir)
+    return any(
+        os.path.realpath(entry) == target for entry in raw.split(";") if entry
+    )
+
+
+def emit_relocation_prompt(
+    stream: TextIO,
+    venv_dir: str,
+    activator: str,
+    args: Args,
+) -> None:
+    """Write shell code that asks the user whether to repair a moved venv."""
+    recorded = recorded_virtual_env(venv_dir) or "<unknown>"
+    message = (
+        f"pyautoenv2: venv at {venv_dir} appears to have been moved "
+        f"(recorded path: {recorded}). Repair it? [y/N] "
+    )
+    if __debug__:
+        logger.debug("emit_relocation_prompt: '%s'", venv_dir)
+    if args.fish:
+        cmd = _fish_relocation_command(message, venv_dir, activator)
+    elif args.pwsh:
+        cmd = _pwsh_relocation_command(message, venv_dir, activator)
+    else:
+        cmd = _posix_relocation_command(message, venv_dir, activator)
+    stream.write(cmd)
+
+
+def _posix_relocation_command(
+    message: str, venv_dir: str, activator: str,
+) -> str:
+    msg_q = _sh_quote(message)
+    venv_q = _sh_quote(venv_dir)
+    act_q = _sh_quote(activator)
+    return (
+        f"_pae_venv={venv_q}; "
+        f"printf '%s' {msg_q}; "
+        "if IFS= read -r _pae_reply </dev/tty 2>/dev/null; then :; "
+        "else _pae_reply=; fi; "
+        "case \"$_pae_reply\" in "
+        "[Yy]*) "
+        "{ [ -n \"${VIRTUAL_ENV-}\" ] && deactivate; } 2>/dev/null; "
+        f"python3 -m venv --upgrade \"$_pae_venv\" && . {act_q} ;; "
+        "*) "
+        "_pae_dr=\"${PYAUTOENV_DISMISSED_RELOCATIONS-}\"; "
+        "if [ -n \"$_pae_dr\" ]; then "
+        "_pae_dr=\"$_pae_dr;$_pae_venv\"; "
+        "else "
+        "_pae_dr=\"$_pae_venv\"; "
+        "fi; "
+        "export PYAUTOENV_DISMISSED_RELOCATIONS=\"$_pae_dr\"; "
+        "unset _pae_dr ;; "
+        "esac; "
+        "unset _pae_reply _pae_venv"
+    )
+
+
+def _fish_relocation_command(
+    message: str, venv_dir: str, activator: str,
+) -> str:
+    msg_q = _sh_quote(message)
+    venv_q = _sh_quote(venv_dir)
+    act_q = _sh_quote(activator)
+    return (
+        f"set -l _pae_venv {venv_q}; "
+        f"read -l -P {msg_q} _pae_reply; "
+        "if string match -qr '^[Yy]' -- $_pae_reply; "
+        "if set -q VIRTUAL_ENV; deactivate; end; "
+        "python3 -m venv --upgrade $_pae_venv; "
+        f"and . {act_q}; "
+        "else; "
+        "set -gx PYAUTOENV_DISMISSED_RELOCATIONS "
+        "(string join ';' -- $PYAUTOENV_DISMISSED_RELOCATIONS $_pae_venv); "
+        "end; "
+        "set -e _pae_reply; set -e _pae_venv"
+    )
+
+
+def _pwsh_relocation_command(
+    message: str, venv_dir: str, activator: str,
+) -> str:
+    msg_q = _pwsh_quote(message)
+    venv_q = _pwsh_quote(venv_dir)
+    act_q = _pwsh_quote(activator)
+    return (
+        f"$_pae_venv = {venv_q}; "
+        f"$_pae_reply = Read-Host -Prompt {msg_q}; "
+        "if ($_pae_reply -match '^[Yy]') { "
+        "if ($env:VIRTUAL_ENV) { deactivate }; "
+        "& python3 -m venv --upgrade $_pae_venv; "
+        f"if ($?) {{ . {act_q} }} "
+        "} else { "
+        "if ($env:PYAUTOENV_DISMISSED_RELOCATIONS) { "
+        "$env:PYAUTOENV_DISMISSED_RELOCATIONS = "
+        "$env:PYAUTOENV_DISMISSED_RELOCATIONS + ';' + $_pae_venv "
+        "} else { "
+        "$env:PYAUTOENV_DISMISSED_RELOCATIONS = $_pae_venv "
+        "} "
+        "}; "
+        "Remove-Variable _pae_reply,_pae_venv -ErrorAction SilentlyContinue"
+    )
+
+
+def _sh_quote(value: str) -> str:
+    """Return value quoted for POSIX shells."""
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _pwsh_quote(value: str) -> str:
+    """Return value quoted as a PowerShell single-quoted string."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 @lru_cache(maxsize=1)
 def operating_system() -> Union[int, None]:
     """
@@ -500,7 +674,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1:], sys.stdout))
     except Exception as exc:  # noqa: BLE001
-        sys.stderr.write(f"pyautoenv: error: {exc}\n")
+        sys.stderr.write(f"pyautoenv2: error: {exc}\n")
         if __debug__:
             logger.exception("backtrace:")
         sys.exit(1)

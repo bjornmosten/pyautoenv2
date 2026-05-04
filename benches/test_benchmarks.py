@@ -1,4 +1,4 @@
-"""Benchmarks for pyautoenv's main function."""
+"""Benchmarks for pyautoenv2's main function."""
 
 from io import StringIO
 from pathlib import Path
@@ -6,7 +6,7 @@ from typing import Union
 
 import pytest
 
-import pyautoenv
+import pyautoenv2
 from benches.conftest import PoetryVenvFixture
 from benches.tools import make_venv, venv_active, working_directory
 from tests.tools import clear_lru_caches
@@ -31,8 +31,8 @@ def run_main_benchmark(benchmark, *, shell: Union[str, None] = None):
     argv = []
     if shell:
         argv.append(f"--{shell}")
-    benchmark(pyautoenv.main, argv, stdout=stream)
-    clear_lru_caches(pyautoenv)
+    benchmark(pyautoenv2.main, argv, stdout=stream)
+    clear_lru_caches(pyautoenv2)
     return stream.getvalue()
 
 

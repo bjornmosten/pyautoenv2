@@ -1,4 +1,4 @@
-name: pyautoenv test
+name: pyautoenv2 test
 on:
   pull_request:
   push:
@@ -16,7 +16,7 @@ jobs:
           enable-cache: true
           python-version: "3.9"
           version: "0.6.13"
-      - name: Install pyautoenv
+      - name: Install pyautoenv2
         run: uv sync --all-groups
       - name: Code Quality
         run: |
@@ -40,7 +40,7 @@ jobs:
           enable-cache: true
           python-version: "3.9"
           version: "0.6.13"
-      - name: Install pyautoenv
+      - name: Install pyautoenv2
         run: uv sync --all-groups
       - name: Test
         run: |

@@ -1,4 +1,4 @@
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@ from unittest import mock
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
-import pyautoenv
+import pyautoenv2
 from tests.tools import (
     OPERATING_SYSTEM,
     activate_venv,
@@ -94,7 +94,7 @@ class PoetryTester(abc.ABC):
         return fs
 
     def setup_method(self):
-        clear_lru_caches(pyautoenv)
+        clear_lru_caches(pyautoenv2)
         self.os_patch = mock.patch(OPERATING_SYSTEM, return_value=self.os)
         self.os_patch.start()
         os.environ = copy.deepcopy(self.env)  # noqa: B003
@@ -105,20 +105,20 @@ class PoetryTester(abc.ABC):
     def test_activates_given_poetry_dir(self):
         stdout = StringIO()
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert stdout.getvalue() == f". '{self.venv_dir / self.activator}'"
 
     def test_activates_given_poetry_dir_in_parent(self):
         stdout = StringIO()
 
-        assert pyautoenv.main(["python_project/src", self.flag], stdout) == 0
+        assert pyautoenv2.main(["python_project/src", self.flag], stdout) == 0
         assert stdout.getvalue() == f". '{self.venv_dir / self.activator}'"
 
     def test_nothing_happens_given_not_venv_dir_and_not_active(self):
         stdout = StringIO()
 
         assert (
-            pyautoenv.main([str(self.not_poetry_proj), self.flag], stdout) == 0
+            pyautoenv2.main([str(self.not_poetry_proj), self.flag], stdout) == 0
         )
         assert not stdout.getvalue()
 
@@ -126,7 +126,7 @@ class PoetryTester(abc.ABC):
         stdout = StringIO()
         activate_venv(self.venv_dir)
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_venv_dir_in_parent_is_already_active(self):
@@ -134,7 +134,7 @@ class PoetryTester(abc.ABC):
         activate_venv(self.venv_dir)
 
         assert (
-            pyautoenv.main([str(self.python_proj / "src"), self.flag], stdout)
+            pyautoenv2.main([str(self.python_proj / "src"), self.flag], stdout)
             == 0
         )
         assert not stdout.getvalue()
@@ -144,7 +144,7 @@ class PoetryTester(abc.ABC):
         activate_venv(self.venv_dir)
 
         assert (
-            pyautoenv.main([str(self.not_poetry_proj), self.flag], stdout) == 0
+            pyautoenv2.main([str(self.not_poetry_proj), self.flag], stdout) == 0
         )
         assert stdout.getvalue() == "deactivate"
 
@@ -169,7 +169,7 @@ class PoetryTester(abc.ABC):
         new_activate = new_venv / self.activator
         fs.create_file(new_activate)
 
-        assert pyautoenv.main(["pyproj2", self.flag], stdout=stdout) == 0
+        assert pyautoenv2.main(["pyproj2", self.flag], stdout=stdout) == 0
         assert stdout.getvalue() == f"deactivate && . '{new_activate}'"
 
     def test_does_nothing_if_activate_script_is_not_file(self, fs):
@@ -177,14 +177,14 @@ class PoetryTester(abc.ABC):
         # delete the activate script
         fs.remove(self.venv_dir / self.activator)
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_poetry_cache_dir_does_not_exist(self, fs):
         stdout = StringIO()
         fs.remove_object(str(self.venv_dir))
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_poetry_cache_dir_env_var_used_if_set_and_dir_exists(self, fs):
@@ -203,21 +203,21 @@ class PoetryTester(abc.ABC):
         fs.create_file(new_activator)
         os.environ["POETRY_CACHE_DIR"] = str(new_poetry_cache_dir)
 
-        assert pyautoenv.main(["pyproj2", self.flag], stdout) == 0
+        assert pyautoenv2.main(["pyproj2", self.flag], stdout) == 0
         assert stdout.getvalue() == f". '{new_activator}'"
 
     def test_poetry_cache_dir_env_var_not_used_if_set_and_does_not_exist(self):
         stdout = StringIO()
         os.environ["POETRY_CACHE_DIR"] = "/not/a/dir"
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert stdout.getvalue() == f". '{self.venv_dir / self.activator}'"
 
     def test_does_nothing_given_poetry_cache_dir_does_not_exist(self, fs):
         stdout = StringIO()
         fs.remove_object(str(self.poetry_cache))
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     @pytest.mark.parametrize(
@@ -241,14 +241,14 @@ class PoetryTester(abc.ABC):
         assert (self.python_proj / "pyproject.toml").write_text(pyproject_toml)
         stdout = StringIO()
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_pyproject_toml_does_not_exist(self, fs):
         fs.remove(self.python_proj / "pyproject.toml")
         stdout = StringIO()
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_unknown_operating_system(self):
@@ -256,7 +256,7 @@ class PoetryTester(abc.ABC):
 
         with mock.patch(OPERATING_SYSTEM, new=mock.Mock(return_value=None)):
             assert (
-                pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+                pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
             )
         assert not stdout.getvalue()
 
@@ -265,24 +265,24 @@ class PoetryTester(abc.ABC):
         os.chdir(self.python_proj)
         activate_venv(self.venv_dir)
 
-        assert pyautoenv.main(["src", self.flag], stdout) == 0
+        assert pyautoenv2.main(["src", self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_changing_to_ignored_directory(self):
         stdout = StringIO()
         ignore = f"some_dir;{self.python_proj.resolve()}"
-        os.environ[pyautoenv.IGNORE_DIRS] = ignore
+        os.environ[pyautoenv2.IGNORE_DIRS] = ignore
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert not stdout.getvalue()
 
     def test_nothing_happens_given_change_to_child_of_ignored_directory(self):
         stdout = StringIO()
         ignore = f"some_dir;{self.python_proj.resolve()}"
-        os.environ[pyautoenv.IGNORE_DIRS] = ignore
+        os.environ[pyautoenv2.IGNORE_DIRS] = ignore
 
         assert (
-            pyautoenv.main([str(self.python_proj / "src"), self.flag], stdout)
+            pyautoenv2.main([str(self.python_proj / "src"), self.flag], stdout)
             == 0
         )
         assert not stdout.getvalue()
@@ -291,9 +291,9 @@ class PoetryTester(abc.ABC):
         stdout = StringIO()
         activate_venv(self.venv_dir)
         ignore = f"some_dir;{self.python_proj.resolve()}"
-        os.environ[pyautoenv.IGNORE_DIRS] = ignore
+        os.environ[pyautoenv2.IGNORE_DIRS] = ignore
 
-        assert pyautoenv.main([str(self.python_proj), self.flag], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj), self.flag], stdout) == 0
         assert stdout.getvalue() == "deactivate"
 
 
@@ -302,7 +302,7 @@ class PoetryLinuxTester(PoetryTester):
         "HOME": str(root_dir() / "home" / "user"),
         "USERPROFILE": str(root_dir() / "home" / "user"),
     }
-    os = pyautoenv.OS_LINUX
+    os = pyautoenv2.OS_LINUX
     poetry_cache = (
         root_dir() / "home" / "user" / ".cache" / "pypoetry" / "virtualenvs"
     )
@@ -328,7 +328,7 @@ class PoetryMacosTester(PoetryTester):
         "HOME": str(root_dir() / "Users" / "user"),
         "USERPROFILE": str(root_dir() / "Users" / "user"),
     }
-    os = pyautoenv.OS_MACOS
+    os = pyautoenv2.OS_MACOS
     poetry_cache = (
         root_dir()
         / "Users"
@@ -359,7 +359,7 @@ class TestPoetryPwshWindows(PoetryTester):
     activator = Path("Scripts/activate.ps1")
     env = {"LOCALAPPDATA": str(root_dir() / "Users/user/AppData/Local")}
     flag = "--pwsh"
-    os = pyautoenv.OS_WINDOWS
+    os = pyautoenv2.OS_WINDOWS
     poetry_cache = (
         root_dir()
         / "Users"
@@ -375,5 +375,5 @@ class TestPoetryPwshWindows(PoetryTester):
         del os.environ["LOCALAPPDATA"]
         stdout = StringIO()
 
-        assert pyautoenv.main([str(self.python_proj)], stdout) == 0
+        assert pyautoenv2.main([str(self.python_proj)], stdout) == 0
         assert not stdout.getvalue()

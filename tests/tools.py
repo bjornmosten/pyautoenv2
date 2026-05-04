@@ -1,4 +1,4 @@
-# pyautoenv Automatically activate and deactivate Python environments.
+# pyautoenv2 Automatically activate and deactivate Python environments.
 # Copyright (C) 2023  Harry Saunders.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,7 +24,7 @@ from typing import Protocol, Union
 
 from pyfakefs.fake_filesystem import FakeFilesystem
 
-OPERATING_SYSTEM = "pyautoenv.operating_system"
+OPERATING_SYSTEM = "pyautoenv2.operating_system"
 
 
 def activate_venv(venv_dir: Union[str, Path]) -> None:

@@ -1,4 +1,4 @@
-name: pyautoenv release
+name: pyautoenv2 release
 on:
   workflow_dispatch:
     inputs:
@@ -24,7 +24,7 @@ jobs:
           if ! [ "${{ github.event.inputs.version }}" = "${pyproject_version}" ]; then
             exit 1;
           fi
-          script_version="$(python -c 'import pyautoenv; print(pyautoenv.__version__)')"
+          script_version="$(python -c 'import pyautoenv2; print(pyautoenv2.__version__)')"
           echo "Version from script:         ${script_version}"
           if ! [ "${pyproject_version}" = "${script_version}" ]; then
             exit 1;
