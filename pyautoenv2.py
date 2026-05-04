@@ -510,26 +510,64 @@ def is_local_venv_activator(activator_path: str) -> bool:
 
 def venv_is_relocated(venv_dir: str) -> bool:
     """Return True if the venv's recorded path doesn't match its real path."""
-    recorded = recorded_virtual_env(venv_dir)
-    if not recorded:
-        return False
     actual = os.path.realpath(venv_dir)
-    return os.path.realpath(recorded) != actual
+    for recorded in (
+        recorded_virtual_env(venv_dir),
+        recorded_pyvenv_cfg_path(venv_dir),
+    ):
+        if recorded and os.path.realpath(recorded) != actual:
+            return True
+    return False
+
+
+def recorded_pyvenv_cfg_path(venv_dir: str) -> Union[str, None]:
+    """Read the venv path baked into pyvenv.cfg's ``command`` line.
+
+    pyvenv.cfg looks like::
+
+        command = /usr/bin/python3.12 -m venv /path/to/.venv
+
+    The last whitespace-separated token is the original venv path.
+    """
+    cfg_path = os.path.join(venv_dir, "pyvenv.cfg")
+    try:
+        with open(cfg_path, encoding="utf-8") as cfg_file:
+            for raw_line in cfg_file:
+                line = raw_line.strip()
+                if not line.startswith("command"):
+                    continue
+                _, _, value = line.partition("=")
+                tokens = value.strip().split()
+                if tokens:
+                    return tokens[-1]
+    except OSError:
+        return None
+    return None
 
 
 def recorded_virtual_env(venv_dir: str) -> Union[str, None]:
-    """Read the VIRTUAL_ENV path baked into the venv's activate script."""
+    """Read the VIRTUAL_ENV path baked into the venv's activate script.
+
+    Modern activate scripts (e.g. those produced by uv) emit two
+    assignments: a cygwin-only branch using ``$(cygpath ...)`` and a
+    plain-literal branch for everything else. We want the literal one.
+    """
     bin_dir = "Scripts" if operating_system() == OS_WINDOWS else "bin"
     activate_path = os.path.join(venv_dir, bin_dir, "activate")
     try:
         with open(activate_path, encoding="utf-8") as activate_file:
             for raw_line in activate_file:
                 line = raw_line.strip()
-                if line.startswith("VIRTUAL_ENV="):
-                    val = line.split("=", 1)[1].strip()
-                    if len(val) > 1 and val[0] == val[-1] and val[0] in "\"'":
-                        val = val[1:-1]
-                    return val
+                if line.startswith("export "):
+                    line = line[len("export "):].lstrip()
+                if not line.startswith("VIRTUAL_ENV="):
+                    continue
+                val = line.split("=", 1)[1].strip()
+                if not val or val.startswith(("$(", "`")):
+                    continue
+                if len(val) > 1 and val[0] == val[-1] and val[0] in "\"'":
+                    val = val[1:-1]
+                return val
     except OSError:
         return None
     return None
