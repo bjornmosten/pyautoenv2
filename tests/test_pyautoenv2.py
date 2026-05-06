@@ -138,3 +138,34 @@ class TestParseArgs:
         assert args.directory == str(root_dir() / "some" / "dir")
         assert args.fish is False
         assert args.pwsh is False
+
+
+class TestRelocationCommand:
+    VENV = "/project/.venv"
+    ACTIVATOR = "/project/.venv/bin/activate"
+
+    def test_posix_clears_broken_symlinks_before_upgrade(self):
+        cmd = pyautoenv2._posix_relocation_command("msg", self.VENV, self.ACTIVATOR)
+
+        cleanup = "find \"$_pae_venv/bin\" -maxdepth 1 -xtype l -delete 2>/dev/null"
+        upgrade = "python3 -m venv --upgrade \"$_pae_venv\""
+        assert cleanup in cmd
+        assert cmd.index(cleanup) < cmd.index(upgrade)
+
+    def test_fish_clears_broken_symlinks_before_upgrade(self):
+        cmd = pyautoenv2._fish_relocation_command("msg", self.VENV, self.ACTIVATOR)
+
+        cleanup = "find \"$_pae_venv/bin\" -maxdepth 1 -xtype l -delete 2>/dev/null"
+        upgrade = "python3 -m venv --upgrade $_pae_venv"
+        assert cleanup in cmd
+        assert cmd.index(cleanup) < cmd.index(upgrade)
+
+    def test_posix_activates_after_successful_upgrade(self):
+        cmd = pyautoenv2._posix_relocation_command("msg", self.VENV, self.ACTIVATOR)
+
+        assert f". '{self.ACTIVATOR}'" in cmd
+
+    def test_posix_sets_dismissed_on_no(self):
+        cmd = pyautoenv2._posix_relocation_command("msg", self.VENV, self.ACTIVATOR)
+
+        assert "PYAUTOENV_DISMISSED_RELOCATIONS" in cmd
