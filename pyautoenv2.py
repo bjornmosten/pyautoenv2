@@ -32,6 +32,7 @@ set to any supported by Python's 'logging' module.
 """
 
 import os
+import re
 import sys
 from functools import lru_cache
 from typing import Iterator, List, TextIO, Union
@@ -94,10 +95,12 @@ class Args:
         self.pwsh = pwsh
 
 
-def main(sys_args: List[str], stdout: TextIO) -> int:
+def main(sys_args: List[str], stdout: TextIO) -> int:  # noqa: C901
     """Write commands to activate/deactivate environments."""
     if __debug__:
         logger.debug("main(%s)", sys_args)
+    if sys_args[:1] == ["--repair"]:
+        return _run_repair(sys_args[1:])
     args = parse_args(sys_args, stdout)
     if not os.path.isdir(args.directory):
         if __debug__:
@@ -573,6 +576,101 @@ def recorded_virtual_env(venv_dir: str) -> Union[str, None]:
     return None
 
 
+_VIRTUAL_ENV_LINE_PATTERNS_QUOTED = (
+    # POSIX shell: [export ]VIRTUAL_ENV='...' / "..."
+    re.compile(r"^(\s*(?:export\s+)?VIRTUAL_ENV=)(['\"])([^'\"$`\n]*)(['\"])(\s*)$"),
+    # fish: set -gx VIRTUAL_ENV "..."
+    re.compile(r"^(\s*set\s+-gx\s+VIRTUAL_ENV\s+)(['\"])([^'\"$`\n]*)(['\"])(\s*)$"),
+    # csh: setenv VIRTUAL_ENV "..."
+    re.compile(r"^(\s*setenv\s+VIRTUAL_ENV\s+)(['\"])([^'\"$`\n]*)(['\"])(\s*)$"),
+    # PowerShell: $env:VIRTUAL_ENV = "..."
+    re.compile(r"^(\s*\$env:VIRTUAL_ENV\s*=\s*)(['\"])([^'\"$`\n]*)(['\"])(\s*)$"),
+)
+
+# Unquoted absolute-path assignments. Only match when the value starts with
+# '/' (POSIX) or a Windows drive letter, and contains no shell metacharacters.
+_VIRTUAL_ENV_LINE_PATTERNS_UNQUOTED = (
+    # POSIX: VIRTUAL_ENV=/abs/path
+    re.compile(r"^(\s*(?:export\s+)?VIRTUAL_ENV=)(/[^'\"$`\s\n]*)(\s*)$"),
+    # fish: set -gx VIRTUAL_ENV /abs/path
+    re.compile(r"^(\s*set\s+-gx\s+VIRTUAL_ENV\s+)(/[^'\"$`\s\n]*)(\s*)$"),
+    # csh: setenv VIRTUAL_ENV /abs/path
+    re.compile(r"^(\s*setenv\s+VIRTUAL_ENV\s+)(/[^'\"$`\s\n]*)(\s*)$"),
+)
+
+
+def _rewrite_virtual_env_line(line: str, venv_dir: str) -> Union[str, None]:
+    """Return a rewritten line, or None if it doesn't assign VIRTUAL_ENV."""
+    for pat in _VIRTUAL_ENV_LINE_PATTERNS_QUOTED:
+        m = pat.match(line)
+        if m:
+            return (
+                f"{m.group(1)}{m.group(2)}{venv_dir}"
+                f"{m.group(4)}{m.group(5)}"
+            )
+    for pat in _VIRTUAL_ENV_LINE_PATTERNS_UNQUOTED:
+        m = pat.match(line)
+        if m:
+            return f"{m.group(1)}{venv_dir}{m.group(3)}"
+    return None
+
+
+def _rewrite_activate_file(path: str, venv_dir: str) -> None:
+    """Rewrite literal VIRTUAL_ENV assignments in a single activate script."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except (OSError, UnicodeDecodeError):
+        return
+    changed = False
+    for i, line in enumerate(lines):
+        new = _rewrite_virtual_env_line(line, venv_dir)
+        if new is None:
+            continue
+        if not new.endswith("\n") and line.endswith("\n"):
+            new += "\n"
+        if new != line:
+            lines[i] = new
+            changed = True
+    if not changed:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except OSError:
+        if __debug__:
+            logger.warning(
+                "repair_venv_paths: failed to write '%s'", path,
+            )
+
+
+def _run_repair(rest: List[str]) -> int:
+    """Handle the ``--repair`` CLI flag."""
+    if not rest:
+        return 1
+    repair_venv_paths(rest[0])
+    return 0
+
+
+def repair_venv_paths(venv_dir: str) -> None:
+    """Rewrite VIRTUAL_ENV references in activate scripts after relocation."""
+    venv_dir = os.path.realpath(venv_dir)
+    for sub in ("bin", "Scripts"):
+        bin_dir = os.path.join(venv_dir, sub)
+        if not os.path.isdir(bin_dir):
+            continue
+        try:
+            entries = os.listdir(bin_dir)
+        except OSError:
+            continue
+        for name in entries:
+            if not name.lower().startswith("activate"):
+                continue
+            path = os.path.join(bin_dir, name)
+            if os.path.isfile(path):
+                _rewrite_activate_file(path, venv_dir)
+
+
 def is_relocation_dismissed(venv_dir: str) -> bool:
     """Return True if the user already declined to fix this venv."""
     raw = os.environ.get(DISMISSED_RELOCATIONS, "")
@@ -607,12 +705,22 @@ def emit_relocation_prompt(
     stream.write(cmd)
 
 
+def _script_path() -> str:
+    """Return the absolute path of pyautoenv2.py for shell call-backs."""
+    candidate = sys.argv[0] if sys.argv and sys.argv[0] else __file__
+    try:
+        return os.path.realpath(candidate)
+    except OSError:
+        return os.path.realpath(__file__)
+
+
 def _posix_relocation_command(
     message: str, venv_dir: str, activator: str,
 ) -> str:
     msg_q = _sh_quote(message)
     venv_q = _sh_quote(venv_dir)
     act_q = _sh_quote(activator)
+    script_q = _sh_quote(_script_path())
     return (
         f"_pae_venv={venv_q}; "
         f"printf '%s' {msg_q}; "
@@ -622,7 +730,8 @@ def _posix_relocation_command(
         "[Yy]*) "
         "{ [ -n \"${VIRTUAL_ENV-}\" ] && deactivate; } 2>/dev/null; "
         "find \"$_pae_venv/bin\" -maxdepth 1 -xtype l -delete 2>/dev/null; "
-        f"python3 -m venv --upgrade \"$_pae_venv\" && . {act_q} ;; "
+        f"python3 -m venv --upgrade \"$_pae_venv\" && "
+        f"python3 {script_q} --repair \"$_pae_venv\" && . {act_q} ;; "
         "*) "
         "_pae_dr=\"${PYAUTOENV_DISMISSED_RELOCATIONS-}\"; "
         "if [ -n \"$_pae_dr\" ]; then "
@@ -643,6 +752,7 @@ def _fish_relocation_command(
     msg_q = _sh_quote(message)
     venv_q = _sh_quote(venv_dir)
     act_q = _sh_quote(activator)
+    script_q = _sh_quote(_script_path())
     return (
         f"set -l _pae_venv {venv_q}; "
         f"read -l -P {msg_q} _pae_reply; "
@@ -650,6 +760,7 @@ def _fish_relocation_command(
         "if set -q VIRTUAL_ENV; deactivate; end; "
         "find \"$_pae_venv/bin\" -maxdepth 1 -xtype l -delete 2>/dev/null; "
         "python3 -m venv --upgrade $_pae_venv; "
+        f"and python3 {script_q} --repair $_pae_venv; "
         f"and . {act_q}; "
         "else; "
         "set -gx PYAUTOENV_DISMISSED_RELOCATIONS "
@@ -665,13 +776,14 @@ def _pwsh_relocation_command(
     msg_q = _pwsh_quote(message)
     venv_q = _pwsh_quote(venv_dir)
     act_q = _pwsh_quote(activator)
+    script_q = _pwsh_quote(_script_path())
     return (
         f"$_pae_venv = {venv_q}; "
         f"$_pae_reply = Read-Host -Prompt {msg_q}; "
         "if ($_pae_reply -match '^[Yy]') { "
         "if ($env:VIRTUAL_ENV) { deactivate }; "
         "& python3 -m venv --upgrade $_pae_venv; "
-        f"if ($?) {{ . {act_q} }} "
+        f"if ($?) {{ & python3 {script_q} --repair $_pae_venv; . {act_q} }} "
         "} else { "
         "if ($env:PYAUTOENV_DISMISSED_RELOCATIONS) { "
         "$env:PYAUTOENV_DISMISSED_RELOCATIONS = "

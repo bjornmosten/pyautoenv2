@@ -144,28 +144,154 @@ class TestRelocationCommand:
     VENV = "/project/.venv"
     ACTIVATOR = "/project/.venv/bin/activate"
 
-    def test_posix_clears_broken_symlinks_before_upgrade(self):
-        cmd = pyautoenv2._posix_relocation_command("msg", self.VENV, self.ACTIVATOR)
+    def _posix(self):
+        return pyautoenv2._posix_relocation_command(
+            "msg", self.VENV, self.ACTIVATOR,
+        )
 
-        cleanup = "find \"$_pae_venv/bin\" -maxdepth 1 -xtype l -delete 2>/dev/null"
-        upgrade = "python3 -m venv --upgrade \"$_pae_venv\""
+    def _fish(self):
+        return pyautoenv2._fish_relocation_command(
+            "msg", self.VENV, self.ACTIVATOR,
+        )
+
+    def test_posix_clears_broken_symlinks_before_upgrade(self):
+        cmd = self._posix()
+
+        cleanup = (
+            'find "$_pae_venv/bin" -maxdepth 1 -xtype l -delete 2>/dev/null'
+        )
+        upgrade = 'python3 -m venv --upgrade "$_pae_venv"'
         assert cleanup in cmd
         assert cmd.index(cleanup) < cmd.index(upgrade)
 
     def test_fish_clears_broken_symlinks_before_upgrade(self):
-        cmd = pyautoenv2._fish_relocation_command("msg", self.VENV, self.ACTIVATOR)
+        cmd = self._fish()
 
-        cleanup = "find \"$_pae_venv/bin\" -maxdepth 1 -xtype l -delete 2>/dev/null"
+        cleanup = (
+            'find "$_pae_venv/bin" -maxdepth 1 -xtype l -delete 2>/dev/null'
+        )
         upgrade = "python3 -m venv --upgrade $_pae_venv"
         assert cleanup in cmd
         assert cmd.index(cleanup) < cmd.index(upgrade)
 
     def test_posix_activates_after_successful_upgrade(self):
-        cmd = pyautoenv2._posix_relocation_command("msg", self.VENV, self.ACTIVATOR)
+        cmd = self._posix()
 
         assert f". '{self.ACTIVATOR}'" in cmd
 
     def test_posix_sets_dismissed_on_no(self):
-        cmd = pyautoenv2._posix_relocation_command("msg", self.VENV, self.ACTIVATOR)
+        cmd = self._posix()
 
         assert "PYAUTOENV_DISMISSED_RELOCATIONS" in cmd
+
+    def test_posix_calls_repair_after_upgrade(self):
+        cmd = self._posix()
+
+        upgrade = 'python3 -m venv --upgrade "$_pae_venv"'
+        repair = '--repair "$_pae_venv"'
+        activate = f". '{self.ACTIVATOR}'"
+        assert repair in cmd
+        # upgrade -> repair -> activate, all chained with &&
+        assert cmd.index(upgrade) < cmd.index(repair) < cmd.index(activate)
+
+    def test_fish_calls_repair_after_upgrade(self):
+        cmd = self._fish()
+
+        upgrade = "python3 -m venv --upgrade $_pae_venv"
+        repair = "--repair $_pae_venv"
+        activate = f". '{self.ACTIVATOR}'"
+        assert repair in cmd
+        assert cmd.index(upgrade) < cmd.index(repair) < cmd.index(activate)
+
+
+class TestRepairVenvPaths:
+    """Tests for pyautoenv2.repair_venv_paths."""
+
+    def _write(self, fs, path, content):
+        fs.create_file(path, contents=content)
+
+    def test_rewrites_unquoted_posix_assignment(self, fs):
+        venv = "/new/loc/.venv"
+        self._write(
+            fs,
+            f"{venv}/bin/activate",
+            "VIRTUAL_ENV=/old/path/.venv\nexport VIRTUAL_ENV\n",
+        )
+
+        pyautoenv2.repair_venv_paths(venv)
+
+        with open(f"{venv}/bin/activate") as f:
+            text = f.read()
+        assert f"VIRTUAL_ENV={venv}\n" in text
+
+    def test_rewrites_quoted_posix_assignment(self, fs):
+        venv = "/new/loc/.venv"
+        self._write(
+            fs,
+            f"{venv}/bin/activate",
+            'VIRTUAL_ENV="/old/path/.venv"\nexport VIRTUAL_ENV\n',
+        )
+
+        pyautoenv2.repair_venv_paths(venv)
+
+        with open(f"{venv}/bin/activate") as f:
+            text = f.read()
+        assert f'VIRTUAL_ENV="{venv}"\n' in text
+
+    def test_rewrites_fish_assignment(self, fs):
+        venv = "/new/loc/.venv"
+        self._write(
+            fs,
+            f"{venv}/bin/activate.fish",
+            'set -gx VIRTUAL_ENV "/old/path/.venv"\n',
+        )
+
+        pyautoenv2.repair_venv_paths(venv)
+
+        with open(f"{venv}/bin/activate.fish") as f:
+            text = f.read()
+        assert f'set -gx VIRTUAL_ENV "{venv}"\n' in text
+
+    def test_rewrites_csh_assignment(self, fs):
+        venv = "/new/loc/.venv"
+        self._write(
+            fs,
+            f"{venv}/bin/activate.csh",
+            "setenv VIRTUAL_ENV /old/path/.venv\n",
+        )
+
+        pyautoenv2.repair_venv_paths(venv)
+
+        with open(f"{venv}/bin/activate.csh") as f:
+            text = f.read()
+        assert f"setenv VIRTUAL_ENV {venv}\n" in text
+
+    def test_does_not_rewrite_dynamic_assignments(self, fs):
+        # Lines using $(...), backticks, or variables must not be rewritten.
+        venv = "/new/loc/.venv"
+        original = (
+            'VIRTUAL_ENV=$(cygpath -u "$VIRTUAL_ENV")\n'
+            'export VIRTUAL_ENV\n'
+            'unset VIRTUAL_ENV\n'
+        )
+        self._write(fs, f"{venv}/bin/activate", original)
+
+        pyautoenv2.repair_venv_paths(venv)
+
+        with open(f"{venv}/bin/activate") as f:
+            assert f.read() == original
+
+    def test_main_dispatches_repair_flag(self, fs):
+        venv = "/new/loc/.venv"
+        self._write(
+            fs,
+            f"{venv}/bin/activate",
+            "VIRTUAL_ENV=/old/path/.venv\n",
+        )
+        stdout = StringIO()
+
+        rc = pyautoenv2.main(["--repair", venv], stdout)
+
+        assert rc == 0
+        with open(f"{venv}/bin/activate") as f:
+            assert f"VIRTUAL_ENV={venv}\n" in f.read()
