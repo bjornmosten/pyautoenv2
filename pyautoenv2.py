@@ -26,6 +26,14 @@ To specify specific directories where pyautoenv2 should not activate
 environments, add the directory's path to the 'PYAUTOENV_IGNORE_DIR'
 environment variable. Paths should be separated using a ';'.
 
+In addition to Python environments, pyautoenv2 can load per-directory
+environment variables from a '.envrc' file. When you enter a directory
+(or any of its children) that contains a '.envrc' file, the simple
+'KEY=value' assignments within it are exported, and they are unset (or
+restored to their previous values) again when you leave. Only literal
+assignments are parsed; lines using command substitution or other shell
+logic are ignored, so no arbitrary code from the file is ever executed.
+
 When running the script with __debug__, the logging level can be set
 using the 'PYAUTOENV_LOG_LEVEL' environment variable. The level can be
 set to any supported by Python's 'logging' module.
@@ -35,7 +43,8 @@ import os
 import re
 import sys
 from functools import lru_cache
-from typing import Iterator, List, TextIO, Union
+from io import StringIO
+from typing import Dict, Iterator, List, TextIO, Tuple, Union
 
 __version__ = "0.7.1"
 
@@ -56,6 +65,19 @@ VENV_NAMES = "PYAUTOENV_VENV_NAME"
 """Directory names to search in for venv virtual environments."""
 DISMISSED_RELOCATIONS = "PYAUTOENV_DISMISSED_RELOCATIONS"
 """Venvs whose relocation prompt the user dismissed in this session."""
+ENVRC_NAME = ".envrc"
+"""Name of the file holding per-directory environment variables."""
+ENVRC_DIR = "PYAUTOENV_ENVRC_DIR"
+"""Directory whose '.envrc' is currently loaded."""
+ENVRC_VARS = "PYAUTOENV_ENVRC_VARS"
+"""';'-separated names of the variables set by the loaded '.envrc'."""
+ENVRC_BACKUP = "PYAUTOENV_ENVRC_BACKUP"
+"""Base64-encoded previous values of variables the '.envrc' overrode."""
+
+_ENVRC_ASSIGNMENT = re.compile(
+    r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$",
+)
+"""Matches a simple 'KEY=value' or 'export KEY=value' assignment."""
 
 OS_LINUX = 0
 OS_MACOS = 1
@@ -106,6 +128,10 @@ def main(sys_args: List[str], stdout: TextIO) -> int:  # noqa: C901
         if __debug__:
             logger.warning("path '%s' is not a directory", args.directory)
         return 1
+    # 'discover_env' walks 'args.directory' up to the root, mutating it,
+    # so capture the target directory now for the '.envrc' search below.
+    target_directory = args.directory
+    venv_buf = StringIO()
     new_activator = discover_env(args)
     active_env_dir = active_environment()
     if new_activator and is_local_venv_activator(new_activator):
@@ -117,11 +143,13 @@ def main(sys_args: List[str], stdout: TextIO) -> int:  # noqa: C901
             return 0
     if active_env_dir:
         if not new_activator:
-            deactivate(stdout)
+            deactivate(venv_buf)
         elif not activator_in_venv(new_activator, active_env_dir):
-            deactivate_and_activate(stdout, new_activator)
+            deactivate_and_activate(venv_buf, new_activator)
     elif new_activator:
-        activate(stdout, new_activator)
+        activate(venv_buf, new_activator)
+    commands = [venv_buf.getvalue(), envrc_command(target_directory)]
+    stdout.write("; ".join(c for c in commands if c))
     return 0
 
 
@@ -249,6 +277,173 @@ def ignored_dirs() -> List[str]:
     if dirs:
         return dirs.split(";")
     return []
+
+
+def envrc_command(directory: str) -> str:
+    """
+    Return the command to sync '.envrc' variables for the given directory.
+
+    Compares the '.envrc' that applies to ``directory`` against the one
+    currently loaded (recorded in ``PYAUTOENV_ENVRC_DIR``) and returns a
+    POSIX-shell command that unloads the old one and/or loads the new
+    one. Returns an empty string when nothing needs to change.
+    """
+    new_dir = discover_envrc(directory)
+    old_dir = os.environ.get(ENVRC_DIR) or None
+    if _same_envrc_dir(old_dir, new_dir):
+        return ""
+    parts: List[str] = []
+    if old_dir:
+        parts.append(_envrc_unload_command())
+    if new_dir:
+        # When moving directly between two '.envrc' directories the old
+        # one's variables are still present in this process's environment,
+        # so back up against the environment as it will be *after* the
+        # unload runs, not the current one.
+        base_env = _env_after_unload() if old_dir else dict(os.environ)
+        parts.append(_envrc_load_command(new_dir, base_env))
+    command = "; ".join(p for p in parts if p)
+    if __debug__:
+        logger.debug("envrc_command: '%s'", command)
+    return command
+
+
+def discover_envrc(directory: str) -> Union[str, None]:
+    """Return nearest directory at or above ``directory`` with a '.envrc'."""
+    current = directory
+    while (not dir_is_ignored(current)) and (
+        current != os.path.dirname(current)
+    ):
+        if os.path.isfile(os.path.join(current, ENVRC_NAME)):
+            return current
+        current = os.path.dirname(current)
+    return None
+
+
+def parse_envrc(path: str) -> List[Tuple[str, str]]:
+    """
+    Parse the simple 'KEY=value' assignments from a '.envrc' file.
+
+    Only literal assignments are returned. Comments, blank lines, and any
+    line that isn't a plain assignment (e.g. one using command
+    substitution) are ignored so that no part of the file is ever
+    executed. Later assignments to the same key win.
+    """
+    pairs: Dict[str, str] = {}
+    try:
+        with open(path, encoding="utf-8") as envrc_file:
+            for raw_line in envrc_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                match = _ENVRC_ASSIGNMENT.match(line)
+                if not match:
+                    continue
+                value = _envrc_value(match.group(2))
+                if value is None:
+                    continue
+                pairs[match.group(1)] = value
+    except OSError:
+        return []
+    return list(pairs.items())
+
+
+def _envrc_value(raw: str) -> Union[str, None]:
+    """
+    Return the literal value of an assignment, or None to skip the line.
+
+    Surrounding single or double quotes are stripped. Unquoted values
+    that use command substitution (``$(...)`` or backticks) are skipped,
+    since pyautoenv2 never evaluates shell. Quoted values are taken
+    verbatim.
+    """
+    value = raw.strip()
+    if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    if "$(" in value or "`" in value:
+        return None
+    return value
+
+
+def _envrc_load_command(envrc_dir: str, base_env: Dict[str, str]) -> str:
+    """Return the command exporting the variables in ``envrc_dir``'s file."""
+    pairs = parse_envrc(os.path.join(envrc_dir, ENVRC_NAME))
+    if not pairs:
+        return ""
+    names = [name for name, _ in pairs]
+    backup = [(name, base_env[name]) for name in names if name in base_env]
+    encoded_backup = _encode_envrc_backup(backup)
+    cmds = [f"export {name}={_sh_quote(value)}" for name, value in pairs]
+    cmds.append(f"export {ENVRC_DIR}={_sh_quote(envrc_dir)}")
+    cmds.append(f"export {ENVRC_VARS}={_sh_quote(';'.join(names))}")
+    cmds.append(f"export {ENVRC_BACKUP}={_sh_quote(encoded_backup)}")
+    return "; ".join(cmds)
+
+
+def _envrc_unload_command() -> str:
+    """Return the command that reverts the currently loaded '.envrc'."""
+    names = [n for n in os.environ.get(ENVRC_VARS, "").split(";") if n]
+    backup = _decode_envrc_backup(os.environ.get(ENVRC_BACKUP, ""))
+    cmds = []
+    for name in names:
+        if name in backup:
+            cmds.append(f"export {name}={_sh_quote(backup[name])}")
+        else:
+            cmds.append(f"unset {name}")
+    cmds.append(f"unset {ENVRC_DIR} {ENVRC_VARS} {ENVRC_BACKUP}")
+    return "; ".join(cmds)
+
+
+def _env_after_unload() -> Dict[str, str]:
+    """Return this process's environment as it will be after an unload."""
+    env = dict(os.environ)
+    names = [n for n in env.get(ENVRC_VARS, "").split(";") if n]
+    backup = _decode_envrc_backup(env.get(ENVRC_BACKUP, ""))
+    for name in names:
+        if name in backup:
+            env[name] = backup[name]
+        else:
+            env.pop(name, None)
+    for key in (ENVRC_DIR, ENVRC_VARS, ENVRC_BACKUP):
+        env.pop(key, None)
+    return env
+
+
+def _same_envrc_dir(a: Union[str, None], b: Union[str, None]) -> bool:
+    """Return True if the two paths refer to the same '.envrc' directory."""
+    if a is None or b is None:
+        return a is None and b is None
+    try:
+        return os.path.realpath(a) == os.path.realpath(b)
+    except OSError:
+        return os.path.normpath(a) == os.path.normpath(b)
+
+
+def _encode_envrc_backup(pairs: List[Tuple[str, str]]) -> str:
+    """Encode previous variable values for safe storage in an env var."""
+    import base64
+
+    raw = "\n".join(f"{name}={value}" for name, value in pairs)
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+
+def _decode_envrc_backup(encoded: str) -> Dict[str, str]:
+    """Decode the value produced by :func:`_encode_envrc_backup`."""
+    if not encoded:
+        return {}
+    import base64
+
+    try:
+        raw = base64.urlsafe_b64decode(encoded.encode("ascii")).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    backup: Dict[str, str] = {}
+    for line in raw.split("\n"):
+        if not line:
+            continue
+        name, _, value = line.partition("=")
+        backup[name] = value
+    return backup
 
 
 def get_virtual_env(args: Args) -> Union[str, None]:

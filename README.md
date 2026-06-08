@@ -127,6 +127,39 @@ There are some environment variables you can set to configure `pyautoenv2`.
   shell session. You normally don't need to set this manually; clear it (or
   start a new shell) to be prompted again.
 
+## Per-directory environment variables (`.envrc`)
+
+`pyautoenv2` can also load environment variables on a per-directory basis.
+When you `cd` into a directory (or any of its children) that contains a
+`.envrc` file, the variables defined in it are exported. When you leave
+that directory tree, the variables are unset again (or restored to their
+previous values if they were already set).
+
+The `.envrc` file holds simple `KEY=value` assignments, one per line:
+
+```sh
+# .envrc
+export API_KEY=abc123
+DATABASE_URL=postgres://localhost/db
+DEBUG=1
+```
+
+Notes:
+
+- Both `KEY=value` and `export KEY=value` are accepted.
+- Surrounding single or double quotes around a value are stripped.
+  Values are treated **literally** — no variable or command expansion is
+  performed.
+- For safety, `pyautoenv2` never executes the file. Lines that aren't a
+  plain assignment (for example `PATH_add ./bin`, or values using command
+  substitution like `FOO=$(cmd)`) are ignored. If you need full shell
+  behaviour, use [direnv](https://direnv.net/) instead.
+- Comments (`#`) and blank lines are ignored.
+- Directories listed in `PYAUTOENV_IGNORE_DIR` are skipped, just as they
+  are for Python environments.
+
+This feature is currently supported for POSIX shells (bash and zsh).
+
 ## Relocated venvs
 
 If you move or rename a directory that contains a `.venv`, the activate
